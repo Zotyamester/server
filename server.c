@@ -45,20 +45,41 @@ int main(int argc, char *argv[])
     check(bind(server_socket, (SA *)&server_addr, sizeof(server_addr)), "Bind failed!");
     check(listen(server_socket, SERVER_BACKLOG), "Listen failed!");
 
+    fd_set current_sockets, ready_sockets;
+
+    FD_ZERO(&current_sockets);
+    FD_SET(server_socket, &current_sockets);
+
+    printf("Waiting for connections...\n");
+
     while (true) {
-        printf("Waiting for connections...\n");
 
-        addr_size = sizeof(SA_IN);
-        check(client_socket = accept(server_socket, (SA *)&client_addr, (socklen_t *)&addr_size), "Accept failed!");
-        printf("Connected!\n");
+        ready_sockets = current_sockets;
 
-        pthread_mutex_lock(&mutex);
-        enqueue(client_socket);
-        pthread_cond_signal(&cond_var);
-        pthread_mutex_unlock(&mutex);
+        if (select(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL) < 0) {
+            perror("Select failed!");
+            exit(EXIT_FAILURE);
+        }
+
+        for (int i = 0; i < FD_SETSIZE; ++i) {
+            if (FD_ISSET(i, &ready_sockets)) {
+                if (i == server_socket) {
+                    addr_size = sizeof(SA_IN);
+                    check(client_socket = accept(server_socket, (SA *)&client_addr, (socklen_t *)&addr_size), "Accept failed!");
+                    printf("Connected!\n");
+                    FD_SET(client_socket, &current_sockets);
+                } else {
+                    pthread_mutex_lock(&mutex);
+                    enqueue(client_socket);
+                    pthread_cond_signal(&cond_var);
+                    pthread_mutex_unlock(&mutex);
+                    FD_CLR(i, &current_sockets);
+                }
+            }
+        }
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }
 
 int check(int exp, const char *msg)
