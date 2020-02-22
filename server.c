@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <stdbool.h>
@@ -20,9 +21,6 @@ pthread_t thread_pool[THREAD_POOL_SIZE];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond_var = PTHREAD_COND_INITIALIZER;
 
-typedef struct sockaddr_in SA_IN;
-typedef struct sockaddr SA;
-
 void handle_connection(int client_socket);
 int check(int exp, const char *msg);
 void *thread_function(void *arg);
@@ -30,7 +28,7 @@ void *thread_function(void *arg);
 int main(int argc, char *argv[])
 {
     int server_socket, client_socket, addr_size;
-    SA_IN server_addr, client_addr;
+    struct sockaddr_in server_addr, client_addr;
 
     for (int i = 0; i < THREAD_POOL_SIZE; ++i) {
         pthread_create(&thread_pool[i], NULL, thread_function, NULL);
@@ -42,7 +40,7 @@ int main(int argc, char *argv[])
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(SERVERPORT);
 
-    check(bind(server_socket, (SA *)&server_addr, sizeof(server_addr)), "Bind failed!");
+    check(bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)), "Bind failed!");
     check(listen(server_socket, SERVER_BACKLOG), "Listen failed!");
 
     fd_set current_sockets, ready_sockets;
@@ -64,8 +62,8 @@ int main(int argc, char *argv[])
         for (int i = 0; i < FD_SETSIZE; ++i) {
             if (FD_ISSET(i, &ready_sockets)) {
                 if (i == server_socket) {
-                    addr_size = sizeof(SA_IN);
-                    check(client_socket = accept(server_socket, (SA *)&client_addr, (socklen_t *)&addr_size), "Accept failed!");
+                    addr_size = sizeof(struct sockaddr_in);
+                    check(client_socket = accept(server_socket, (struct sockaddr *)&client_addr, (socklen_t *)&addr_size), "Accept failed!");
                     printf("Connected!\n");
                     FD_SET(client_socket, &current_sockets);
                 } else {
