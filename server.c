@@ -8,21 +8,32 @@
 #include <limits.h>
 #include <pthread.h>
 
+#include "queue.h"
+
 #define SERVERPORT 6969
 #define BUFSIZE 4096
 #define SOCKETERROR (-1)
 #define SERVER_BACKLOG 100
+#define THREAD_POOL_SIZE 32
+
+pthread_t thread_pool[THREAD_POOL_SIZE];
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct sockaddr_in SA_IN;
 typedef struct sockaddr SA;
 
-void *handle_connection(void *client);
+void handle_connection(int client_socket);
 int check(int exp, const char *msg);
+void *thread_function(void *arg);
 
 int main(int argc, char *argv[])
 {
     int server_socket, client_socket, addr_size;
     SA_IN server_addr, client_addr;
+
+    for (int i = 0; i < THREAD_POOL_SIZE; ++i) {
+        pthread_create(&thread_pool[i], NULL, thread_function, NULL);
+    }
 
     check((server_socket = socket(AF_INET, SOCK_STREAM, 0)), "Failed to create socket");
 
@@ -40,10 +51,9 @@ int main(int argc, char *argv[])
         check(client_socket = accept(server_socket, (SA *)&client_addr, (socklen_t *)&addr_size), "Accept failed!");
         printf("Connected!\n");
 
-        pthread_t t;
-        int *client = malloc(sizeof(int));
-        *client = client_socket;
-        pthread_create(&t, NULL, handle_connection, client);
+        pthread_mutex_lock(&mutex);
+        enqueue(client_socket);
+        pthread_mutex_unlock(&mutex);
     }
 
     return 0;
@@ -58,9 +68,22 @@ int check(int exp, const char *msg)
     return exp;
 }
 
-void *handle_connection(void *client) {
-    int client_socket = *((int *)client);
-    free(client);
+void *thread_function(void *arg)
+{
+    while (true) {
+        int socket;
+        pthread_mutex_lock(&mutex);
+        socket = dequeue();
+        pthread_mutex_unlock(&mutex);
+
+        if (socket != SOCKETERROR) {
+            handle_connection(socket);
+        }
+    }
+}
+
+void handle_connection(int client_socket)
+{
     char buffer[BUFSIZE];
     size_t bytes_read;
     int msgsize = 0;
@@ -79,23 +102,22 @@ void *handle_connection(void *client) {
     if (realpath(buffer, actualpath) == NULL) {
         printf("ERROR(bad path): %s\n", buffer);
         close(client_socket);
-        return NULL;
+        return;
     }
 
     FILE *fp = fopen(actualpath, "r");
     if (fp == NULL) {
         printf("ERROR(open): %s\n", buffer);
         close(client_socket);
-        return NULL;
+        return;
     }
 
     while ((bytes_read = fread(buffer, 1, BUFSIZE, fp)) > 0) {
         printf("Sending %zu bytes\n", bytes_read);
         write(client_socket, buffer, bytes_read);
     }
+
     close(client_socket);
     fclose(fp);
     printf("Closing connection\n");
-
-    return NULL;
 }
