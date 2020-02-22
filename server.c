@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <limits.h>
+#include <pthread.h>
 
 #define SERVERPORT 6969
 #define BUFSIZE 4096
@@ -15,7 +16,7 @@
 typedef struct sockaddr_in SA_IN;
 typedef struct sockaddr SA;
 
-void handle_connection(int client_socket);
+void *handle_connection(void *client);
 int check(int exp, const char *msg);
 
 int main(int argc, char *argv[])
@@ -39,7 +40,10 @@ int main(int argc, char *argv[])
         check(client_socket = accept(server_socket, (SA *)&client_addr, (socklen_t *)&addr_size), "Accept failed!");
         printf("Connected!\n");
 
-        handle_connection(client_socket);
+        pthread_t t;
+        int *client = malloc(sizeof(int));
+        *client = client_socket;
+        pthread_create(&t, NULL, handle_connection, client);
     }
 
     return 0;
@@ -54,7 +58,9 @@ int check(int exp, const char *msg)
     return exp;
 }
 
-void handle_connection(int client_socket) {
+void *handle_connection(void *client) {
+    int client_socket = *((int *)client);
+    free(client);
     char buffer[BUFSIZE];
     size_t bytes_read;
     int msgsize = 0;
@@ -73,14 +79,14 @@ void handle_connection(int client_socket) {
     if (realpath(buffer, actualpath) == NULL) {
         printf("ERROR(bad path): %s\n", buffer);
         close(client_socket);
-        return;
+        return NULL;
     }
 
     FILE *fp = fopen(actualpath, "r");
     if (fp == NULL) {
         printf("ERROR(open): %s\n", buffer);
         close(client_socket);
-        return;
+        return NULL;
     }
 
     while ((bytes_read = fread(buffer, 1, BUFSIZE, fp)) > 0) {
@@ -90,4 +96,6 @@ void handle_connection(int client_socket) {
     close(client_socket);
     fclose(fp);
     printf("Closing connection\n");
+
+    return NULL;
 }
